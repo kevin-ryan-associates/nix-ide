@@ -1,0 +1,9 @@
+# Build artifacts
+result
+result-*
+.direnv/
+.devenv/
+
+# Editor
+.*
+!.gitignore
