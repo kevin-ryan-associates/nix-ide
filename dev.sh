@@ -78,6 +78,8 @@ exec env -i \
   NIX_PROFILES="${NIX_PROFILES:-}" \
   PATH="$PATH" \
   NIX_SSL_CERT_FILE="${NIX_SSL_CERT_FILE:-}" \
+  TERMINFO_DIRS="${TERMINFO_DIRS:-}" \
+  COLORTERM="${COLORTERM:-truecolor}" \
   TERM="${TERM:-xterm-256color}" \
   SHELL="$(command -v zsh)" \
-  zsh -l
+  zsh -li
