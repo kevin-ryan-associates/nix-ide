@@ -1,0 +1,2 @@
+# nix-ide
+Nix IDE
