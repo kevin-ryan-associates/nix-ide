@@ -4,7 +4,7 @@ Nix-managed developer environment — a port of [`~/dotfiles`](https://github.co
 
 ## What this repo does
 
-- Defines a single home-manager configuration (`#kevin`) keyed on the host's current system, so `home-manager switch --flake .#kevin` works on macOS (aarch64/x86_64) and Linux (aarch64/x86_64) without per-arch outputs.
+- Defines per-system home-manager configurations (`homeConfigurations.kevin-${system}`) plus a shareable `homeModules.default` so other users can import the tool config with their own `home.username`.
 - Uses native `programs.*` home-manager modules wherever HM models the tool cleanly (zsh, fzf, zoxide, starship); falls back to `home.file` for raw user-data that has no module (the ainative banner).
 - Keeps **Zinit** as the zsh plugin manager (clone-on-first-run preserved verbatim in `programs.zsh.initExtra`). Plugin lazy-loading UX is unchanged from the dotfiles repo.
 
@@ -19,12 +19,30 @@ Nix-managed developer environment — a port of [`~/dotfiles`](https://github.co
 
 2. **home-manager** is *not* required as a separate install — the flake exposes it via `nix run`.
 
-## Dev mode (test without touching your shell)
+## Three ways to try this repo
 
-`./dev.sh` builds the activation package, lays out the HM-managed files into a throwaway `mktemp` HOME, and `exec`s an interactive login zsh in that sandbox. Type `exit` or Ctrl-D to leave. Your real `~/.zshrc` is untouched.
+### 1. `nix develop` — quick tool check, no setup
+
+Drops into a bash shell with the Phase 1 tools on PATH (zsh, starship, fzf, zoxide, eza, bat, fd, delta). No home-manager, no `$HOME` writes — the simplest path for someone to try the tool inventory.
 
 ```bash
-./dev.sh
+# From GitHub (anyone, no checkout needed):
+nix develop github:kevin-ryan-associates/nix-ide
+
+# From a local clone:
+git clone git@github.com:kevin-ryan-associates/nix-ide.git
+cd nix-ide && nix develop .
+```
+
+Inside the dev shell, `starship --version` / `eza --icons` / etc. work. Exit with Ctrl-D to return to your normal shell.
+
+### 2. `./dev.sh` — full port sandbox, still no `$HOME` writes
+
+Builds the home-manager activation package (without switching), lays out the HM-managed files into a throwaway `mktemp` HOME, and `exec`s an interactive login zsh in that sandbox. Banner renders, Tokyo Night prompt renders, aliases work. Your real `~/.zshrc` is untouched.
+
+```bash
+git clone git@github.com:kevin-ryan-associates/nix-ide.git
+cd nix-ide && ./dev.sh
 # inside the sandbox:
 starship --version    # Nix-installed 1.25.1
 zsh --version         # Nix-installed 5.9.1
@@ -33,9 +51,13 @@ eza --version         # Nix 0.72.0
 exit
 ```
 
-## Activation (when ready to commit to the port)
+The maintainer's `home.username` is baked into the build (`kevinryan`), so the sandbox's `[username]` module will show "kevinryan" — but `home.homeDirectory` is overridden by `dev.sh` so file writes stay in the sandbox. Works for anyone.
 
-When you've verified the port in dev mode and want to make it live, replace your shell with the HM-managed one (pick the attribute matching your host):
+### 3. `home-manager switch` — permanent activation (advanced)
+
+When you've verified the port in dev mode and want to make it live, replace your shell with the HM-managed one. **Caveat: the maintainer's `homeConfigurations.kevin-${system}` is hardcoded to `/Users/kevinryan` or `/home/kevinryan` — it will not work for you directly.** Use the shareable module path in "For other users" below.
+
+For the maintainer (pick the attribute matching your host):
 
 ```bash
 nix run home-manager/release-24.11 -- switch --flake .#kevin-aarch64-darwin -b backup   # macOS Apple Silicon
@@ -52,6 +74,51 @@ home-manager switch --flake .#kevin-x86_64-darwin -b backup
 
 To roll back to your previous shell, `home-manager uninstall` and restore the `.backup` files.
 
+## For other users — rolling your own `homeConfigurations`
+
+The flake exports `homeModules.default` — a home-manager module containing all the zsh/starship/fzf/zoxide/banner config from `home/` WITHOUT setting `home.username`/`home.homeDirectory`. You import it in your own flake and provide those values yourself.
+
+Create a `flake.nix` in e.g. `~/my-nix-ide/`:
+
+```nix
+{
+  description = "my nix-ide config";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-ide.url = "github:kevin-ryan-associates/nix-ide";
+  };
+
+  outputs = { self, nixpkgs, home-manager, nix-ide, ... }:
+    let
+      system = "x86_64-darwin";  # change to your system
+      pkgs = nixpkgs.legacyPackages.${system};
+      username = "alice";        # change to your username
+      homeDirectory = "/Users/${username}";  # /home/${username} on Linux
+    in {
+      homeConfigurations.${username} = home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+        modules = [
+          nix-ide.homeModules.default
+          { home = { inherit username homeDirectory; }; }
+        ];
+      };
+    };
+}
+```
+
+Then:
+
+```bash
+nix run home-manager/release-24.11 -- switch --flake .#alice -b backup
+```
+
+You get the full nix-ide config (zsh, Tokyo Night prompt, banner, fzf, zoxide, eza/bat/delta) deployed to your own `$HOME`. The banner's ASCII art and "AI NATIVE" branding stay (it's a static file shipped via `home.file`); the starship `[username]` module shows your OS username, not "kevinryan".
+
 ## Phase status
 
 - [x] **Phase 1 — zsh + runtime deps**: `.zshrc` (history, options, initExtra, aliases), fzf, zoxide, starship (Tokyo Night palette transcribed to `programs.starship.settings`), banner, plus the binaries zsh directly invokes at startup (`eza`, `fd`, `bat`, `git-delta`).
@@ -67,14 +134,14 @@ To roll back to your previous shell, `home-manager uninstall` and restore the `.
 
 ```
 nix-ide/
-├── flake.nix              # inputs + per-system homeConfigurations.kevin-${system}
-├── home/
-│   ├── default.nix        # aggregator; sets username, homeDirectory, stateVersion
+├── flake.nix              # inputs + outputs: homeConfigurations.kevin-${system}, homeModules.default, devShells.${system}.default
+├── home/                  # also exported as `homeModules.default` — the shareable module bundle
+│   ├── default.nix        # aggregator: imports all sub-modules, sets stateVersion + global shell integration flags
 │   ├── zsh.nix            # programs.zsh (history, aliases, Zinit, initExtra)
 │   ├── starship.nix       # programs.starship.settings (full Tokyo Night palette)
 │   ├── fzf.nix            # programs.fzf (Tokyo Night defaultOptions)
 │   ├── zoxide.nix         # programs.zoxide (zsh integration)
-│   ├── packages.nix       # raw binary packages (eza, fd, bat, delta)
+│   ├── packages.nix        # raw binary packages (eza, fd, bat, delta)
 │   └── files.nix          # home.file for the banner
 ├── files/
 │   └── ainative-banner.sh # verbatim copy of dotfiles/zsh/.config/ainative/banner.sh

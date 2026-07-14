@@ -1,10 +1,23 @@
-# Home-manager aggregator.
+# Home-manager module bundle — the shareable part.
 #
-# Wired into the flake as the single home-manager module. Imports the
-# per-concern modules and sets the cross-cutting fields (username, home
-# directory, state version) that came from the flake via extraSpecialArgs.
+# This is exported as `homeModules.default` so other users can import it in
+# their own flake and set their own `home.username` / `home.homeDirectory`:
+#
+#   outputs = { nix-ide, home-manager, nixpkgs, ... }@inputs: {
+#     homeConfigurations.alice = home-manager.lib.homeManagerConfiguration {
+#       pkgs = nixpkgs.legacyPackages.x86_64-darwin;
+#       modules = [
+#         nix-ide.homeModules.default
+#         { home = { username = "alice"; homeDirectory = "/Users/alice"; stateVersion = "24.11"; }; }
+#       ];
+#     };
+#   };
+#
+# The maintainer's own `homeConfigurations.kevin-${system}` (defined in
+# flake.nix) wraps this module with `home.username`/`home.homeDirectory`
+# set, so this module itself stays user-agnostic.
 
-{ username, homeDirectory, ... }:
+{ ... }:
 
 {
   imports = [
@@ -16,10 +29,7 @@
     ./files.nix
   ];
 
-  home = {
-    inherit username homeDirectory;
-    stateVersion = "24.11";
-  };
+  home.stateVersion = "24.11";
 
   # We only use zsh; disable shell integration defaults for every other
   # shell so HM modules don't pull in nushell/fish/bash integration code

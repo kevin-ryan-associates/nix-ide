@@ -30,11 +30,12 @@
         "x86_64-linux"
       ];
 
-      # Per-system home-manager configuration factory.
-      mkHomeConfig = system:
+      # Per-(system, username) home-manager configuration factory.
+      # `username` flows into `home.username`/`home.homeDirectory`, which
+      # HM bakes into session-vars (STARSHIP_CONFIG, TERMINFO_DIRS, …).
+      mkHomeConfig = system: username:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          username = "kevinryan";
           homeDirectory =
             if pkgs.stdenv.hostPlatform.isDarwin
             then "/Users/${username}"
@@ -42,17 +43,48 @@
         in
         home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
-          modules = [ ./home ];
-          extraSpecialArgs = {
-            inherit nixpkgs;
-            inherit username homeDirectory;
-          };
+          modules = [
+            ./home
+            { home = { inherit username homeDirectory; }; }
+          ];
+        };
+
+      # Convenience: devShell per system. `nix develop .` or
+      # `nix develop github:kevin-ryan-associates/nix-ide` drops the user
+      # into an interactive bash with the Phase 1 tools (zsh, starship, fzf,
+      # zoxide, eza, bat, delta) on PATH. No home-manager, no $HOME writes —
+      # the simplest path for someone to try the tool inventory.
+      mkDevShell = system:
+        let pkgs = nixpkgs.legacyPackages.${system}; in
+        pkgs.mkShellNoCC {
+          packages = with pkgs; [ zsh starship fzf zoxide eza bat fd delta ];
+          shellHook = ''
+            echo "nix-ide dev shell — Phase 1 tools on PATH"
+            echo "  zsh/starship/fzf/zoxide/eza/bat/fd/delta"
+            echo
+            echo "Try: eza --icons | head -5"
+            echo "Or:  starship config 2>&1 | head -5"
+            echo "Exit with Ctrl-D to return to your normal shell."
+          '';
         };
     in
     {
+      # Maintainer's own home configs.
       homeConfigurations = builtins.listToAttrs (map (s: {
         name = "kevin-${s}";
-        value = mkHomeConfig s;
+        value = mkHomeConfig s "kevinryan";
+      }) supportedSystems);
+
+      # Shareable home-manager module bundle. Other users import this in
+      # their own flake and set their own `home.username`/`home.homeDirectory`.
+      # See README.md "For other users" section.
+      homeModules.default = ./home;
+
+      # Quick-test shell. `nix develop .` for local, `nix develop
+      # github:kevin-ryan-associates/nix-ide` for anyone, no setup.
+      devShells = builtins.listToAttrs (map (s: {
+        name = s;
+        value.default = mkDevShell s;
       }) supportedSystems);
 
       # ---------------------------------------------------------------------------
