@@ -32,7 +32,7 @@ case "$(uname -s)-$(uname -m)" in
   *) echo "ERROR: unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
 esac
 
-WORK="$(mktemp -d -t nix-ide-dev)"
+WORK="$(mktemp -d -t nix-ide-dev.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
 echo "==> Building .#homeConfigurations.${ATTR}.activationPackage (no switch)..."
