@@ -1,0 +1,13 @@
+onboarding = false
+# Herdr config -- agent multiplexer with Tokyo Night theme
+
+# Spawn zsh in every pane (PATH-resolved; cross-platform). Without this,
+# herdr falls back to $SHELL, which is bash on Linux until `chsh` is run.
+default_shell = "zsh"
+# Login shells source ~/.zprofile (brew shellenv) + ~/.zshrc (config) in
+# every pane. "auto" uses login on macOS but non-login elsewhere.
+shell_mode = "login"
+
+[theme]
+name = "tokyo-night"
+auto_switch = false

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Fence the SDD skills off from every non-SDD agent (build, plan, custom, ...).
+  // These denials are global; the SDD stage agents re-allow the specific skills
+  // they need in their own permission blocks, and agent rules take precedence
+  // over the global config — so SDD agents still load them, everyone else can't.
+  "permission": {
+    "skill": {
+      "sdd": "deny",
+      "sdd-*": "deny"
+    }
+  }
+}
+
+

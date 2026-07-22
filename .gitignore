@@ -4,6 +4,9 @@ result-*
 .direnv/
 .devenv/
 
+# Sandbox runtime logs (created by ./dev.sh probes)
+*.log
+
 # Editor
 .*
 !.gitignore

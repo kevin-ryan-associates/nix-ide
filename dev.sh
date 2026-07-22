@@ -9,10 +9,15 @@
 #
 # A custom .zprofile is written in the sandbox because HM's generated
 # .zprofile sources a session-vars.sh that bakes in the REAL home path
-# (e.g. STARSHIP_CONFIG=/Users/kevinryan/.config/starship.toml). We source
+# (e.g. STARSHIP_CONFIG=/Users/<you>/.config/starship.toml). We source
 # it for the env vars (BAT_THEME, EDITOR, FZF_*, ...), prepend Nix profile
 # bins so the Nix-installed tools win over Homebrew, then override
 # STARSHIP_CONFIG to the sandbox path.
+#
+# The flake no longer ships user-specific `homeConfigurations`. The dev
+# sandbox uses a private `legacyPackages.${system}.homeConfigurations.sandbox`
+# attribute the flake publishes exclusively for this script — the consumer
+# path is writing your own flake (see README.md "For other users").
 #
 # Usage:
 #   ./dev.sh
@@ -23,44 +28,66 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# Pick the homeConfiguration attribute matching this host.
+# Map this host to one of the supportedSystems the flake enumerates.
 case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64)   ATTR="kevin-aarch64-darwin" ;;
-  Darwin-x86_64)  ATTR="kevin-x86_64-darwin" ;;
-  Linux-aarch64)  ATTR="kevin-aarch64-linux" ;;
-  Linux-x86_64)   ATTR="kevin-x86_64-linux" ;;
+  Darwin-arm64)   SYSTEM="aarch64-darwin" ;;
+  Darwin-x86_64)  SYSTEM="x86_64-darwin"  ;;
+  Linux-aarch64)  SYSTEM="aarch64-linux"  ;;
+  Linux-x86_64)   SYSTEM="x86_64-linux"   ;;
   *) echo "ERROR: unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
 esac
+
+ATTR="legacyPackages.${SYSTEM}.homeConfigurations.sandbox.activationPackage"
 
 WORK="$(mktemp -d -t nix-ide-dev)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "==> Building .#homeConfigurations.${ATTR}.activationPackage (no switch)..."
-nix build --no-link --out-link "$WORK/activation" \
-  ".#homeConfigurations.${ATTR}.activationPackage"
+echo "==> Building .#${ATTR} (no switch)..."
+nix build --no-link --out-link "$WORK/activation" ".#${ATTR}"
 
 # Lay out a fake $HOME containing only what HM would deploy.
 # The activation package exposes `home-files/` as the directory of files
-# HM would write into $HOME on `switch`.
-mkdir -p "$WORK/home/.config/ainative"
-ln -sf "$WORK/activation/home-files/.zshrc"                "$WORK/home/.zshrc"
-ln -sf "$WORK/activation/home-files/.zshenv"               "$WORK/home/.zshenv"
-ln -sf "$WORK/activation/home-files/.config/starship.toml" \
-       "$WORK/home/.config/starship.toml"
-ln -sf "$WORK/activation/home-files/.config/ainative/banner.sh" \
-       "$WORK/home/.config/ainative/banner.sh"
+# HM would write into $HOME on `switch`. We mirror the whole `home-files`
+# tree — top-level dotfiles + the entire `.config/` directory — so any
+# new tool added in the home module is automatically picked up by the
+# sandbox without a dev.sh edit. (Pre-Phase-7 dev.sh hardcoded four
+# symlinks; that approach scaled badly as the HM bundle grew.)
+mkdir -p "$WORK/home"
+ln -sf "$WORK/activation/home-files/.zshrc" "$WORK/home/.zshrc"
+ln -sf "$WORK/activation/home-files/.zshenv" "$WORK/home/.zshenv"
+cp -R "$WORK/activation/home-files/.config" "$WORK/home/.config"
+# The Nix store is read-only by design (dirs are mode 0555); `cp -R`
+# preserves those modes, so the sandbox HOME's `~/.config/<tool>/` dirs
+# would be read-only. `chmod -R u+w` re-enables write so subsequent
+# `ln -sfn` re-links and the trap's `rm -rf "$WORK"` can clean up.
+chmod -R u+w "$WORK/home"
+# Replace the copied `starship.toml` (which itself is a Nix-store symlink)
+# with a repo-relative symlink for clarity — same result either way, but
+# the explicit re-link guards against the (theoretical) edge case where
+# HM's `.config/starship.toml` is a real file rather than a symlink.
+ln -sfn "$WORK/activation/home-files/.config/starship.toml" \
+        "$WORK/home/.config/starship.toml"
 
 # Write a custom .zprofile. HM's .zprofile sources session-vars.sh which
-# exports STARSHIP_CONFIG=/Users/kevinryan/.config/starship.toml (hardcoded
-# at build time), so we source HM's .zprofile for the other env vars and
-# then override STARSHIP_CONFIG back to the sandbox path. We also prepend
-# Nix profile bins to PATH so the HM-installed tools win over Homebrew.
+# exports STARSHIP_CONFIG=/Users/<username>/.config/starship.toml (hardcoded
+# at build time), plus the XDG_*_HOME vars baked to the same build-time
+# homeDirectory. We source HM's .zprofile for the other env vars then
+# override every path-bearing var back to the sandbox HOME so tools that
+# honor XDG (opencode, starship, nvim, ...) write into the sandbox rather
+# than trying to mkdir the real homeDirectory on the host (which would fail
+# with EACCES — HM's placeholder `nix-ide-dev` is not a real OS user).
 cat > "$WORK/home/.zprofile" <<EOF
 # dev-mode .zprofile (replaces HM-generated one with hardcoded paths)
 # Source HM's session vars first (BAT_THEME, EDITOR, FZF_*, etc.).
 . "$WORK/activation/home-files/.zprofile"
-# Override HM's hardcoded STARSHIP_CONFIG to our sandbox path.
+# Override HM's hardcoded paths to our sandbox HOME.
 export STARSHIP_CONFIG="$WORK/home/.config/starship.toml"
+export XDG_CONFIG_HOME="$WORK/home/.config"
+export XDG_CACHE_HOME="$WORK/home/.cache"
+export XDG_DATA_HOME="$WORK/home/.local/share"
+export XDG_STATE_HOME="$WORK/home/.local/state"
+export XDG_BIN_HOME="$WORK/home/.local/bin"
+export TERMINFO_DIRS="$WORK/home/.nix-profile/share/terminfo:\${TERMINFO_DIRS:-/usr/share/terminfo}"
 # Prepend Nix profile bins so the Nix-installed tools win over Homebrew.
 for __p in \${(z)NIX_PROFILES}; do
   PATH="\$__p/bin:\$PATH"

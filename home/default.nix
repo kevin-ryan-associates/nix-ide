@@ -13,9 +13,18 @@
 #     };
 #   };
 #
-# The maintainer's own `homeConfigurations.kevin-${system}` (defined in
-# flake.nix) wraps this module with `home.username`/`home.homeDirectory`
-# set, so this module itself stays user-agnostic.
+# This bundle is user-agnostic: it sets NO `home.username` /
+# `home.homeDirectory`. The consumer's own flake supplies those, e.g.:
+#
+#   homeConfigurations.alice = home-manager.lib.homeManagerConfiguration {
+#     pkgs = nixpkgs.legacyPackages.x86_64-darwin;
+#     modules = [
+#       nix-ide.homeModules.default
+#       { home = { username = "alice"; homeDirectory = "/Users/alice"; stateVersion = "24.11"; }; }
+#     ];
+#   };
+#
+# See README.md "For other users" for the full canonical example.
 
 { ... }:
 
@@ -27,6 +36,16 @@
     ./zoxide.nix
     ./packages.nix
     ./files.nix
+    ./git.nix
+    ./lazygit.nix
+    ./lazydocker.nix
+    ./nvim.nix
+    ./bat.nix
+    ./btop.nix
+    ./htop.nix
+    ./ghostty.nix
+    ./herdr.nix
+    ./opencode.nix
   ];
 
   home.stateVersion = "24.11";
@@ -42,6 +61,15 @@
     enableNushellIntegration = false;
     # enableZshIntegration stays true (default).
   };
+
+  # Force XDG config paths on every platform — including macOS. We
+  # deliberately avoid the macOS-only `~/Library/Application Support/...`
+  # location the dotfiles repo also stowed (lazygit/lazydocker read XDG
+  # first on macOS, so the Library/ symlinks were redundant there — dropped
+  # in this port). With `xdg.enable = true;`, HM modules for lazygit,
+  # lazydocker, and everything else with a Darwin-vs-XDG fork write to
+  # `~/.config/<tool>/...` on all hosts.
+  xdg.enable = true;
 
   # Let home-manager manage itself.
   programs.home-manager.enable = true;

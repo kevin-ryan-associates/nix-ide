@@ -135,7 +135,7 @@
   # ---- Tool-specific env (was at the bottom of .zshrc) -------------------
   home.sessionVariables = {
     BAT_THEME = "tokyonight_moon";
-    OPENSPEC_TELEMETRY = "0";
+    # OpenSpec dropped entirely in the nix-ide migration.
     OPENCODE_ENABLE_EXA = "1";
     EDITOR = "nvim";
     VISUAL = "nvim";
