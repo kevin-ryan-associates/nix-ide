@@ -28,11 +28,16 @@
     kubectl
     kubernetes-helm
     k9s
+    # Additional CLI tools — no per-tool config to port.
+    glow       # markdown renderer
+    bandwhich  # per-process bandwidth TUI (needs sudo on macOS for capture)
+    dust       # du + tree, Rust
     # lazygit, lazydocker come from their HM programs.* modules.
     # btop is shipped in home/btop.nix via home.packages.
     # htop is shipped in home/htop.nix via programs.htop (module adds the binary).
     # herdr is shipped in home/herdr.nix via the vendored upstream flake.
     # opencode is shipped in home/opencode.nix via the vendored upstream flake.
+    # hunk is shipped in home/hunk.nix via the vendored upstream flake.
     # neovim/nodejs/ripgrep/cmake are in home/nvim.nix.
   ];
 }

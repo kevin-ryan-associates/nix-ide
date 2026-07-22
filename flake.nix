@@ -28,6 +28,15 @@
       url = "github:anomalyco/opencode/v1.18.4";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # hunk — review-first terminal diff viewer (https://hunk.dev/), v0.17.3.
+    #   Not in nixpkgs at our `nixpkgs-26.05-darwin` pin (present in
+    #   unstable, but we're pinned for Intel Mac support through end of
+    #   2026). Upstream publishes a flake with `packages.${system}.hunk`
+    #   for all four supportedSystems — same vendor pattern as herdr/opencode.
+    hunk = {
+      url = "github:modem-dev/hunk/v0.17.3";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     # nix-darwin + nix-homebrew for Phase 8 system modules (macOS casks,
     # Colima, `1password-cli`, the Docker `cliPluginsExtraDirs` activation
@@ -77,10 +86,12 @@
             { home = { inherit username homeDirectory; }; }
           ];
           # Thread vendored upstream flake inputs into the home module so
-          # `home/herdr.nix`/`home/opencode.nix` can consume their packages.
+          # `home/herdr.nix`/`home/opencode.nix`/`home/hunk.nix` can consume
+          # their packages.
           extraSpecialArgs = {
             herdr = inputs.herdr;
             opencode = inputs.opencode;
+            hunk = inputs.hunk;
           };
         };
 

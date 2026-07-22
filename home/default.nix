@@ -46,6 +46,7 @@
     ./ghostty.nix
     ./herdr.nix
     ./opencode.nix
+    ./hunk.nix
   ];
 
   home.stateVersion = "24.11";

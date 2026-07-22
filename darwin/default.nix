@@ -42,10 +42,12 @@
   ];
 
   # Pass the vendored upstream flake inputs through to `home-manager.extraSpecialArgs`
-  # so `home/herdr.nix` and `home/opencode.nix` can `herdr.packages...` resolve.
+  # so `home/herdr.nix` / `home/opencode.nix` / `home/hunk.nix` can `*.packages...`
+  # resolve.
   home-manager.extraSpecialArgs = {
     herdr = inputs.herdr;
     opencode = inputs.opencode;
+    hunk = inputs.hunk;
   };
 
   # ---- Homebrew (casks + the Colima formula) -------------------------------
