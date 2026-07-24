@@ -282,7 +282,7 @@ nix-ide/
 │   ├── bat.nix            # programs.bat + custom tmTheme + bat cache build activation
 │   ├── btop.nix           # home.packages.btop + home.file btop config + themes
 │   ├── htop.nix           # programs.htop
-│   ├── ghostty.nix        # home.file ghostty config + Linux `pkgs.ghostty` binary
+│   ├── ghostty.nix        # home.file ghostty config + Linux binary, desktop entry & icon
 │   ├── herdr.nix          # prebuilt herdr binary (fetchurl) + herdr config
 │   ├── opencode.nix       # prebuilt opencode binary (fetchurl) + opencode config dir
 │   ├── packages.nix       # raw binaries (eza, fd, delta, gh, glab, tree, jq, yq, k8s)
@@ -331,7 +331,7 @@ After `./dev.sh`:
 3. `opencode auth` interactive (auth tokens stored in `~/.local/share/opencode/`, outside the repo).
 4. Neovim's Nerd Font icons render in Ghostty (Meslo Nerd Font cask landed).
 
-Linux equivalent via `nixos-rebuild switch --flake .#<hostname>`, plus `docker ps`, `fc-list | grep -i meslo` for the Nerd Font.
+Linux equivalent via `nixos-rebuild switch --flake .#<hostname>`, plus `docker ps`, `fc-list | grep -i meslo` for the Nerd Font. Ghostty should also appear in the desktop environment's app launcher (the `xdg.desktopEntries.ghostty` entry in `home/ghostty.nix`) — if it doesn't show immediately after the switch, run `update-desktop-database ~/.local/share/applications` or re-login.
 
 ## Secret hygiene
 
