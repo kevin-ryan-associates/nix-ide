@@ -74,10 +74,4 @@
 
   # Let home-manager manage itself.
   programs.home-manager.enable = true;
-
-  # Pinned nixpkgs (26.05-darwin for Intel macOS support) doesn't match HM's
-  # unstable branch (26.11). Harmless in practice — disable the version
-  # check warning. Revisit when Intel Mac support is no longer needed and
-  # nixpkgs flips back to nixos-unstable.
-  home.enableNixpkgsReleaseCheck = false;
 }

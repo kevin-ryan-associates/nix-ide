@@ -1,5 +1,5 @@
 # User-data files that don't fit a `programs.*` module. Phase 1 has one:
-# the ainative banner, sourced from .zshrc's initExtra.
+# the ainative banner, sourced from .zshrc's initContent.
 #
 # The starship.toml used to live here as a raw home.file — it now lives in
 # programs.starship.settings (see home/starship.nix), which writes the toml

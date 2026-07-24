@@ -5,12 +5,14 @@ Nix-managed developer environment — a port of [`~/dotfiles`](https://github.co
 ## What this repo does
 
 - Publishes **shareable module bundles** consumers compose in their own flake:
-  - `homeModules.default` — the home-manager config (zsh, starship, fzf, zoxide, git/delta, lazygit, lazydocker, bat, btop, htop, ghostty config, herdr, opencode, nvim, k8s binaries, jq/yq/tree, gh/glab).
-  - `darwinModules.default` — nix-darwin module: Homebrew casks (Ghostty, 1password-cli, Nerd Font), Colima, the Docker `cliPluginsExtraDirs` activation script, and `home-manager` wired in.
-  - `nixosModules.default` — NixOS module: native Docker, Nerd Font via `fonts.fonts`, `1password-cli`, and `home-manager` wired in.
+  - `homeModules.default` — the home-manager config (zsh, starship, fzf, zoxide, git/delta, lazygit, lazydocker, bat, btop, htop, ghostty config, herdr, opencode, hunk, nvim, k8s binaries, jq/yq/tree, gh/glab).
+  - `darwinModules.default` — nix-darwin module: Homebrew casks (Ghostty, Nerd Font), Colima, the Docker `cliPluginsExtraDirs` activation, and `home-manager` wired in.
+  - `nixosModules.default` — NixOS module: native Docker, Nerd Font via `fonts.packages`, system zsh, and `home-manager` wired in.
   - `devShells.${system}.default` — quick tool check via `nix develop .`, no `$HOME` writes.
+
+  All three bundles are **self-contained**: the vendored upstream inputs (herdr, opencode, hunk), home-manager, nix-darwin and nix-homebrew are closed over from this flake's own inputs. Consumers declare none of them and pass no `specialArgs` / `extraSpecialArgs`.
 - Uses native `programs.*` home-manager modules wherever HM models the tool cleanly (zsh, fzf, zoxide, starship, git, bat, htop, lazygit, lazydocker). Falls back to `home.file` for raw user-data that has no module (the ainative banner, the btop themes directory, the herdr config, the AstroNvim tree, the opencode config directory).
-- Keeps **Zinit** as the zsh plugin manager (clone-on-first-run preserved verbatim in `programs.zsh.initExtra`). Plugin lazy-loading UX is unchanged from the dotfiles repo.
+- Keeps **Zinit** as the zsh plugin manager (clone-on-first-run preserved verbatim in `programs.zsh.initContent`). Plugin lazy-loading UX is unchanged from the dotfiles repo.
 - Uses [AstroNvim](https://astronvim.com/) for Neovim, vendored into `files/nvim/` and deployed via `home.file`. Lazy.nvim is the plugin manager and stays in charge — plugins install on first `nvim` launch (~30s).
 - Uses **vendored** upstream flake packages for `herdr` (v0.7.5) and `opencode` (v1.18.4), keeping vendor hashes upstream's problem.
 
@@ -23,9 +25,9 @@ Nix-managed developer environment — a port of [`~/dotfiles`](https://github.co
    printf 'experimental-features = nix-command flakes\n' > ~/.config/nix/nix.conf
    ```
 
-2. **home-manager**, **nix-darwin**, **nix-homebrew** are NOT required as separate installs — the consumer's flake exposes them through inputs.
+2. **home-manager**, **nix-darwin**, **nix-homebrew** are NOT required as separate installs — they come from this flake's inputs, closed over by the bundles. A consumer flake only declares `nixpkgs`, `nix-ide`, and (macOS) `nix-darwin` / (HM-only) `home-manager`.
 
-3. **On macOS only:** `nix-homebrew` activates Homebrew declaratively on `darwin-rebuild switch`. The first activation prompts the user once for `sudo` (nix-homebrew's documented behaviour). After that, Homebrew is along for the ride and the casks (Ghostty, 1password-cli, Nerd Font) deploy automatically.
+3. **On macOS only:** `nix-homebrew` activates Homebrew declaratively on `darwin-rebuild switch`. The first activation prompts the user once for `sudo` (nix-homebrew's documented behaviour). After that, Homebrew is along for the ride and the casks (Ghostty, Nerd Font) deploy automatically.
 
 ## Three ways to try this repo
 
@@ -66,7 +68,7 @@ The flake exposes a private `legacyPackages.${system}.homeConfigurations.sandbox
 Once you've verified the port in dev mode, your own flake wires up `darwinConfigurations.<your-hostname>`. See "For other users" below for the full example.
 
 ```bash
-nix run nix-darwin -- switch --flake ./my-flake#<your-hostname> -b backup
+nix run github:nix-darwin/nix-darwin/nix-darwin-26.05 -- switch --flake ./my-flake#<your-hostname> -b backup
 ```
 
 `-b backup` moves any conflicting existing files to `*.backup` instead of failing. To roll back, `darwin-rebuild --rollback` (or restore the `*.backup` files).
@@ -84,26 +86,15 @@ The flake exposes shareable module bundles. You import the bundle that matches y
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
     nix-darwin = {
-      url = "github:lnl7/nix-darwin";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    nix-homebrew.url = "github:zhaofengli/nix-homebrew";
-    herdr = {
-      url = "github:ogulcancelik/herdr/v0.7.5";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    opencode = {
-      url = "github:anomalyco/opencode/v1.18.4";
+      # Release branch matching our nixpkgs — nix-darwin asserts the
+      # correspondence (26.05 vs 26.05). Branch list: nix-darwin-YY.MM.
+      url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-ide.url = "github:kevin-ryan-associates/nix-ide";
   };
 
-  outputs = inputs@{ self, nix-darwin, nixpkgs, ... }:
+  outputs = { nix-darwin, nix-ide, ... }:
     let
       system = "aarch64-darwin";  # or "x86_64-darwin"
       username = "alice";
@@ -111,35 +102,54 @@ The flake exposes shareable module bundles. You import the bundle that matches y
       darwinConfigurations.alice-mac = nix-darwin.lib.darwinSystem {
         inherit system;
         modules = [
-          inputs.nix-ide.darwinModules.default
+          nix-ide.darwinModules.default
           {
-            # Tell nix-homebrew which user owns `brew` on the host.
-            nix-homebrew.user = username;
+            # Required by nix-darwin itself (asserted). stateVersion 7 is
+            # current at nix-darwin master; pick the release you installed
+            # with and don't bump it casually.
+            system.stateVersion = 7;
+            # Required because the bundle enables Homebrew. Also feeds
+            # `nix-homebrew.user`.
+            system.primaryUser = username;
 
-            # Home-manager needs username + homeDirectory.
+            # HM's darwin module reads home.username/homeDirectory defaults
+            # from users.users.<name>, so the account must be declared.
+            # knownUsers marks it pre-existing — nix-darwin won't create it.
+            # uid 501 is the first regular account on a default macOS install;
+            # check yours with `id -u`.
+            users.knownUsers = [ username ];
+            users.users.${username} = {
+              uid = 501;
+              home = "/Users/${username}";
+            };
+
+            # Home-manager needs username + homeDirectory per user. The
+            # bundle's sharedModules apply the whole HM config to every
+            # user declared here.
             home-manager.users.${username} = {
               home = {
                 inherit username;
                 homeDirectory = "/Users/${username}";
                 stateVersion = "24.11";
               };
+
+              # Override git identity — the bundle sets placeholder
+              # `mkDefault` values.
+              programs.git.settings.user = {
+                name = "Alice Example";
+                email = "alice@example.com";
+              };
             };
 
-            # Any nix-darwin-level overrides go here (hostname, etc.).
             networking.hostName = "alice-mac";
-
-            # Override `git.userEmail` etc. here — the bundle sets
-            # placeholder `mkDefault` values.
-            home-manager.users.${username}.programs.git = {
-              userName = "Alice Example";
-              userEmail = "alice@example.com";
-            };
           }
         ];
       };
     };
 }
 ```
+
+Note what's NOT there: no `specialArgs`, no `home-manager` / `nix-homebrew` / `herdr` / `opencode` / `hunk` inputs — the bundle closes over nix-ide's own.
 
 ### `flake.nix` for a Linux user
 
@@ -149,22 +159,10 @@ The flake exposes shareable module bundles. You import the bundle that matches y
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
-    home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    herdr = {
-      url = "github:ogulcancelik/herdr/v0.7.5";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    opencode = {
-      url = "github:anomalyco/opencode/v1.18.4";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     nix-ide.url = "github:kevin-ryan-associates/nix-ide";
   };
 
-  outputs = inputs@{ self, nixpkgs, ... }:
+  outputs = { nixpkgs, nix-ide, ... }:
     let
       system = "x86_64-linux";  # or "aarch64-linux"
       username = "alice";
@@ -172,8 +170,11 @@ The flake exposes shareable module bundles. You import the bundle that matches y
       nixosConfigurations.alice-linux = nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
-          inputs.nix-ide.nixosModules.default
+          nix-ide.nixosModules.default
           {
+            # Required by NixOS itself.
+            system.stateVersion = "26.05";
+
             # The user account MUST exist before home-manager activates.
             users.users.${username} = {
               isNormalUser = true;
@@ -187,9 +188,9 @@ The flake exposes shareable module bundles. You import the bundle that matches y
                 homeDirectory = "/home/${username}";
                 stateVersion = "24.11";
               };
-              programs.git = {
-                userName = "Alice Example";
-                userEmail = "alice@example.com";
+              programs.git.settings.user = {
+                name = "Alice Example";
+                email = "alice@example.com";
               };
             };
 
@@ -212,21 +213,13 @@ If you don't want a full system module and are happy running `home-manager switc
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
     home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    herdr = {
-      url = "github:ogulcancelik/herdr/v0.7.5";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    opencode = {
-      url = "github:anomalyco/opencode/v1.18.4";
+      url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-ide.url = "github:kevin-ryan-associates/nix-ide";
   };
 
-  outputs = { nixpkgs, home-manager, nix-ide, herdr, opencode, ... }:
+  outputs = { nixpkgs, home-manager, nix-ide, ... }:
     let
     system = "x86_64-darwin";  # or your system
     username = "alice";
@@ -239,26 +232,27 @@ If you don't want a full system module and are happy running `home-manager switc
                    homeDirectory = "/Users/${username}";
                    stateVersion = "24.11"; }; }
       ];
-      extraSpecialArgs = { inherit herdr opencode; };
+      # No extraSpecialArgs — the bundle injects the vendored upstream
+      # flakes (herdr/opencode/hunk) itself via `_module.args`.
     };
   };
 }
 ```
 
-Run `nix run home-manager/release-24.11 -- switch --flake .#alice -b backup`. The HM-only path skips Colima, the casks, native Docker — those land via the nix-darwin / NixOS modules.
+Run `nix run home-manager/release-26.05 -- switch --flake .#alice -b backup`. The HM-only path skips Colima, the casks, native Docker — those land via the nix-darwin / NixOS modules.
 
 ## Phase status
 
-All phases shipped. Ticked = port complete.
+Ticked = port complete. (Phase 6 was folded into Phase 8 — a Docker runtime is system territory, not HM.)
 
-- [x] **Phase 1 — zsh + runtime deps**: `.zshrc` (history, options, initExtra, aliases), fzf, zoxide, starship (Tokyo Night palette transcribed to `programs.starship.settings`), banner, and the binaries zsh directly invokes at startup (`eza`, `fd`, `bat`, `git-delta`).
+- [x] **Phase 1 — zsh + runtime deps**: `.zshrc` (history, options, initContent, aliases), fzf, zoxide, starship (Tokyo Night palette transcribed to `programs.starship.settings`), banner, and the binaries zsh directly invokes at startup (`eza`, `fd`, `bat`, `git-delta`).
 - [x] **Phase 2 — git + delta + git TUIs**: `programs.git.delta` (Tokyo Night options), `gh`, `glab`, `programs.lazygit.settings` (Tokyo Night Moon colors), `programs.lazydocker.settings`. Dropped the redundant macOS `~/Library/Application Support/{lazygit,lazydocker}/` symlinks (XDG-first makes them no-ops).
 - [x] **Phase 3 — nvim (AstroNvim)**: the whole `~/dotfiles/nvim/.config/nvim/` tree vendored into `files/nvim/` and deployed via `home.file.".config/nvim".source`. `neovim`, `nodejs`, `ripgrep`, `cmake` shipped to `home.packages`. Lazy.nvim stays in charge of plugins — first `nvim` launch downloads them (~30s, same UX as the dotfiles repo).
 - [x] **Phase 4 — system tooling**: `programs.bat` + Tokyo Night tmTheme + `bat cache --build` activation, `btop` (config + theme via `home.file`), `programs.htop` (color scheme 6), Ghostty config via `home.file`, `herdr` (vendored upstream `github:ogulcancelik/herdr/v0.7.5`), `tree`/`jq`/`yq`/`gh`, plus `glow` (markdown renderer), `bandwhich` (per-process bandwidth TUI; needs `sudo` on macOS for live capture), `dust` (du + tree, Rust), `hunk` (review-first terminal diff viewer, vendored upstream `github:modem-dev/hunk/v0.17.3` — not in `nixpkgs-26.05-darwin` at our pin, so vendored rather than holding the flake back on unstable).
 - [x] **Phase 5 — k8s**: `kubectl`, `kubernetes-helm` (the `helm` CLI; nixpkgs' `helm` attribute is unrelated), `k9s`. No per-tool config to port (the dotfiles repo has none).
-- [ ] **Phase 6 — Docker runtime**: deferred to Phase 8. The HM bundle doesn't ship a Docker runtime — that's system territory.
+- [x] **Phase 6 — Docker runtime**: folded into Phase 8. The HM bundle doesn't ship a Docker runtime — that's system territory.
 - [x] **Phase 7 — AI tooling**: `opencode` vendored upstream (`github:anomalyco/opencode/v1.18.4`), config directory ported minus the runtime drag-in (`node_modules`, `package.json`, `package-lock.json`, `.gitignore`). **OpenSpec dropped entirely** — removed the `OPENSPEC_TELEMETRY=0` env-var the dotfiles repo carried; users wire their own spec-driven workflow tools.
-- [x] **Phase 8 — system modules**: `darwinModules.default` (nix-darwin + nix-homebrew + Docker activation script + HM wired in importing `homeModules.default`), `nixosModules.default` (native Docker + Nerd Font via `fonts.fonts` + `_1password-cli` + HM wired in). The flake exports NO `homeConfigurations` / `darwinConfigurations` / `nixosConfigurations` directly — consumers compose them in their own flake from these modules.
+- [x] **Phase 8 — system modules**: `darwinModules.default` (nix-darwin + nix-homebrew + Docker activation + HM wired in via `home-manager.sharedModules`), `nixosModules.default` (native Docker + Nerd Font via `fonts.packages` + system zsh + HM wired in). Both bundles close over this flake's inputs — consumers pass no `specialArgs`. The flake exports NO `homeConfigurations` / `darwinConfigurations` / `nixosConfigurations` directly — consumers compose them in their own flake from these modules.
 
 ## Layout
 
@@ -267,7 +261,7 @@ nix-ide/
 ├── flake.nix              # inputs + shareable module bundles (no kevin- or username-here)
 ├── home/                  # `homeModules.default` — shareable home-manager config (Phase 2–7)
 │   ├── default.nix        # aggregator: imports all sub-modules, sets stateVersion + global shell integration flags
-│   ├── zsh.nix            # programs.zsh (history, aliases, Zinit, initExtra, sessionVariables)
+│   ├── zsh.nix            # programs.zsh (history, aliases, Zinit, initContent, sessionVariables)
 │   ├── starship.nix       # programs.starship.settings (full Tokyo Night palette)
 │   ├── fzf.nix            # programs.fzf (Tokyo Night defaultOptions)
 │   ├── zoxide.nix         # programs.zoxide (zsh integration)
@@ -281,13 +275,13 @@ nix-ide/
 │   ├── ghostty.nix        # home.file ghostty config + Linux `pkgs.ghostty` binary
 │   ├── herdr.nix          # vendored herdr upstream + herdr config
 │   ├── opencode.nix       # vendored opencode upstream + opencode config dir
-│   ├── packages.nix       # raw binaries (eza, fd, bat, delta, gh, glab, tree, jq, yq, k8s)
+│   ├── packages.nix       # raw binaries (eza, fd, delta, gh, glab, tree, jq, yq, k8s)
 │   └── files.nix          # home.file for the banner
 ├── darwin/                # `darwinModules.default` — shared nix-darwin config (Phase 8)
-│   ├── default.nix        # home-manager + nix-homebrew + casks (ghostty, 1password-cli, Nerd Font) + Colima
-│   └── docker.nix         # ~/.docker/config.json cliPluginsExtraDirs activation script + self-heal
+│   ├── default.nix        # home-manager + nix-homebrew + casks (ghostty, Nerd Font) + Colima
+│   └── docker.nix         # ~/.docker/config.json cliPluginsExtraDirs (home.activation) + self-heal (system)
 ├── nixos/                 # `nixosModules.default` — shared NixOS config (Phase 8)
-│   └── default.nix        # native Docker + Nerd Font + _1password-cli + home-manager wired in
+│   └── default.nix        # native Docker + Nerd Font + system zsh + home-manager wired in
 ├── files/
 │   ├── ainative-banner.sh # verbatim copy of dotfiles/zsh/.config/ainative/banner.sh
 │   ├── nvim/              # AstroNvim config (verbatim vendored tree, 24 files)
@@ -323,10 +317,9 @@ After `./dev.sh`:
 ### Full (after `darwin-rebuild switch` on a real Mac)
 
 1. `open -a Ghostty` launches the terminal (cask landed).
-2. `op --version` works (1password-cli cask landed).
-3. `colima start; docker ps; docker compose version` (Colima + Docker compose + the `cliPluginsExtraDirs` activation).
-4. `opencode auth` interactive (auth tokens stored in `~/.local/share/opencode/`, outside the repo).
-5. Neovim's Nerd Font icons render in Ghostty (Meslo Nerd Font cask landed).
+2. `colima start; docker ps; docker compose version` (Colima + Docker compose + the `cliPluginsExtraDirs` activation).
+3. `opencode auth` interactive (auth tokens stored in `~/.local/share/opencode/`, outside the repo).
+4. Neovim's Nerd Font icons render in Ghostty (Meslo Nerd Font cask landed).
 
 Linux equivalent via `nixos-rebuild switch --flake .#<hostname>`, plus `docker ps`, `fc-list | grep -i meslo` for the Nerd Font.
 
@@ -335,7 +328,7 @@ Linux equivalent via `nixos-rebuild switch --flake .#<hostname>`, plus `docker p
 A user-config repo lives one careless commit away from leaking credentials. The standing rules, ported from the dotfiles repo:
 
 - **Never put API keys or tokens in Nix config.** Reference environment variables instead, and set them yourself via your password manager CLI at shell startup — e.g. `export NEBIUS_API_KEY="$(op read 'op://vault/nebius/api_key')"` in a file you own (outside the repo). The key is fetched at shell startup, never touches the repo.
-- **The repo's `.zshrc` ships no `op read` calls.** Users wire their own secret-fetch lines in `home-manager.users.<name>.programs.zsh.initExtra` (or anywhere else in their flake). The bundle is secret-agnostic.
+- **The repo's `.zshrc` ships no `op read` calls.** Users wire their own secret-fetch lines in `home-manager.users.<name>.programs.zsh.initContent` (or anywhere else in their flake). The bundle is secret-agnostic.
 - **Never blanket-add.** Always `git add -p` or add specific files. A `.gitignore` that excludes `*.token`, `*secret*`, `*key*`, `auth.json` patterns is cheap insurance.
 - **Audit before pushing anywhere public.** Run [`gitleaks detect`](https://github.com/gitleaks/gitleaks) over the repo. Remember anything ever committed stays in history — scrub with `git filter-repo` and rotate the key.
 - **OpenCode auth lives outside the repo.** Tokens are stored in `~/.local/share/opencode/` — not tracked.

@@ -2,9 +2,9 @@
 # HM module. The split (module vs raw package) mirrors the dotfiles repo:
 #
 #   - In their own HM module: fzf, zoxide, starship, git, lazygit, lazydocker,
-#     bat (Phase 4), htop (Phase 4), btop (Phase 4), gh (Phase 4)…).
-#   - Raw packages here: eza, fd, delta (only needed for the binary; configs
-#     come from the tools' HM modules or `home.file`).
+#     bat (Phase 4), htop (Phase 4), btop (Phase 4)…).
+#   - Raw packages here: eza, fd, delta, gh, glab (only needed for the binary;
+#     configs come from the tools' HM modules or `home.file`).
 #
 # `delta` is the nixpkgs upstream name for what Homebrew calls `git-delta`.
 
@@ -14,7 +14,6 @@
   home.packages = with pkgs; [
     eza
     fd
-    bat
     delta
     gh
     glab

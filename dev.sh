@@ -10,8 +10,9 @@
 # A custom .zprofile is written in the sandbox because HM's generated
 # .zprofile sources a session-vars.sh that bakes in the REAL home path
 # (e.g. STARSHIP_CONFIG=/Users/<you>/.config/starship.toml). We source
-# it for the env vars (BAT_THEME, EDITOR, FZF_*, ...), prepend Nix profile
-# bins so the Nix-installed tools win over Homebrew, then override
+# it for the env vars (BAT_THEME, EDITOR, FZF_*, ...), prepend the built
+# profile's bin/ (home-path) so the sandbox exercises the FLAKE's pinned
+# tools rather than whatever the host has installed, then override
 # STARSHIP_CONFIG to the sandbox path.
 #
 # The flake no longer ships user-specific `homeConfigurations`. The dev
@@ -39,11 +40,13 @@ esac
 
 ATTR="legacyPackages.${SYSTEM}.homeConfigurations.sandbox.activationPackage"
 
-WORK="$(mktemp -d -t nix-ide-dev)"
+# GNU mktemp requires X's in the template even with -t; the XXXXXX form
+# works on both BSD (macOS) and GNU (Linux) coreutils.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/nix-ide-dev.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 echo "==> Building .#${ATTR} (no switch)..."
-nix build --no-link --out-link "$WORK/activation" ".#${ATTR}"
+nix build --out-link "$WORK/activation" ".#${ATTR}"
 
 # Lay out a fake $HOME containing only what HM would deploy.
 # The activation package exposes `home-files/` as the directory of files
@@ -53,7 +56,17 @@ nix build --no-link --out-link "$WORK/activation" ".#${ATTR}"
 # sandbox without a dev.sh edit. (Pre-Phase-7 dev.sh hardcoded four
 # symlinks; that approach scaled badly as the HM bundle grew.)
 mkdir -p "$WORK/home"
-ln -sf "$WORK/activation/home-files/.zshrc" "$WORK/home/.zshrc"
+# Wrapper .zshrc instead of a bare symlink: the repo's zshrc prepends
+# /usr/local/bin ahead of inherited PATH entries (and macOS path_helper in
+# /etc/zprofile also reorders), which would let host-installed copies of
+# starship/eza/bat/... shadow the sandbox's pinned tools. Re-prepending
+# home-path AFTER the real .zshrc runs makes the sandbox deterministic —
+# the flake's tools win regardless of what the host has installed.
+cat > "$WORK/home/.zshrc" <<EOF
+export PATH="$WORK/activation/home-path/bin:\$PATH"
+. "$WORK/activation/home-files/.zshrc"
+export PATH="$WORK/activation/home-path/bin:\$PATH"
+EOF
 ln -sf "$WORK/activation/home-files/.zshenv" "$WORK/home/.zshenv"
 cp -R "$WORK/activation/home-files/.config" "$WORK/home/.config"
 # The Nix store is read-only by design (dirs are mode 0555); `cp -R`
@@ -87,7 +100,11 @@ export XDG_CACHE_HOME="$WORK/home/.cache"
 export XDG_DATA_HOME="$WORK/home/.local/share"
 export XDG_STATE_HOME="$WORK/home/.local/state"
 export XDG_BIN_HOME="$WORK/home/.local/bin"
-export TERMINFO_DIRS="$WORK/home/.nix-profile/share/terminfo:\${TERMINFO_DIRS:-/usr/share/terminfo}"
+# The activation package carries the full HM profile at home-path/ — put it
+# FIRST on PATH so the sandbox tests the flake's pinned tools, not whatever
+# the host happens to have installed (on a fresh machine the host has none).
+export PATH="$WORK/activation/home-path/bin:\$PATH"
+export TERMINFO_DIRS="$WORK/activation/home-path/share/terminfo:\${TERMINFO_DIRS:-/usr/share/terminfo}"
 # Prepend Nix profile bins so the Nix-installed tools win over Homebrew.
 for __p in \${(z)NIX_PROFILES}; do
   PATH="\$__p/bin:\$PATH"

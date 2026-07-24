@@ -4,8 +4,8 @@
 # here. If a future pin breaks the upstream build for a particular system
 # (x86_64-darwin in particular has flaky bun-fetch behaviour), fall back to
 # `nixpkgs#opencode` (currently 1.15.10) by replacing the `home.packages`
-# line below with `pkgs.opencode` and removing `opencode` from
-# `flake.nix`'s `extraSpecialArgs`.
+# line below with `pkgs.opencode` and removing `opencode` from the
+# `_module.args` wrapper in `flake.nix`.
 #
 # Config tree: `~/dotfiles/opencode/.config/opencode/` ported minus runtime
 # drag-in (node_modules, package.json, package-lock.json, .gitignore — see

@@ -7,8 +7,13 @@
 # commandTemplates, so we keep them as verbatim Nix strings. The HM
 # programs.lazydocker module writes them through to `~/.config/lazydocker/config.yml`.
 
-{ ... }:
+{ pkgs, ... }:
 
+let
+  # `open` is macOS-only; Linux uses xdg-open. The HM bundle is
+  # platform-agnostic, so fork on the host platform.
+  openCmd = if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open";
+in
 {
   programs.lazydocker = {
     enable = true;
@@ -56,8 +61,8 @@
       };
 
       oS = {
-        openCommand = "open {{filename}}";
-        openLinkCommand = "open {{link}}";
+        openCommand = "${openCmd} {{filename}}";
+        openLinkCommand = "${openCmd} {{link}}";
       };
 
       stats = {

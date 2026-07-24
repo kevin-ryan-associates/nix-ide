@@ -18,7 +18,7 @@
 # The Nerd Font (MesloLGS) is NOT installed here — it is runtime font
 # rendering and lives in Phase 8:
 #   - macOS: `homebrew.casks` via nix-darwin (`font-meslo-lg-nerd-font`)
-#   - Linux: `fonts.fonts = [pkgs.nerd-fonts.meslo-lg]` via NixOS module
+#   - Linux: `fonts.packages = [pkgs.nerd-fonts.meslo-lg]` via NixOS module
 
 { pkgs, ... }:
 

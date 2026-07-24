@@ -32,18 +32,18 @@ Diagnosing on the live machine is fine — `cat`, `ls -l`, `nix flake show`, `ni
 |---|---|---|
 | A tool's HM-managed config (zsh, starship, fzf, zoxide, git, bat, htop, lazygit, lazydocker) | `home/<tool>.nix` via the matching `programs.<tool>` module | HM modules give us free binaries + activation hooks; this is the cleanest path |
 | A tool's raw config file the HM module doesn't cover (btop themes, ghostty config, herdr config, opencode config directory) | `files/<tool>/` shipped via `home.file` in `home/<tool>.nix` | No HM module for these — `home.file` is the fallback |
-| A vendored upstream package (herdr, opencode) | `inputs.<tool>.url` in `flake.nix` and `home/<tool>.nix`'s `<tool>.packages.${system}.<attr>` | Keeps vendor hashes upstream's problem; consumer just imports the flake |
-| A macOS Homebrew cask (Ghostty, 1password-cli, Nerd Font) | `darwin/default.nix` `homebrew.casks` | Casks touch `/Applications`, `/usr/local`, the TCC db — system territory, not HM |
-| A Linux system-level package (Docker, fonts, `_1password-cli`) | `nixos/default.nix` `environment.systemPackages` / `virtualisation.docker.enable` / `fonts.fonts` | System territory; mirrors macOS casks |
-| An architecture-conditional runtime value (e.g. `~/.docker/config.json`'s `cliPluginsExtraDirs`) | `darwin/docker.nix` activation script | The value is `brewPrefix`-dependent (`/opt/homebrew` vs `/usr/local`); resolve via `pkgs.stdenv.hostPlatform` so it's still eval-time deterministic, unlike the dotfiles repo's runtime `brew --prefix` |
+| A vendored upstream package (herdr, opencode, hunk) | `inputs.<tool>.url` in `flake.nix` and `home/<tool>.nix`'s `<tool>.packages.${system}.<attr>` | Keeps vendor hashes upstream's problem; consumer just imports the flake |
+| A macOS Homebrew cask (Ghostty, Nerd Font) | `darwin/default.nix` `homebrew.casks` | Casks touch `/Applications`, `/usr/local`, the TCC db — system territory, not HM |
+| A Linux system-level service/package (Docker, fonts, system zsh) | `nixos/default.nix` `virtualisation.docker.enable` / `fonts.packages` / `programs.zsh.enable` | System territory; mirrors macOS casks |
+| An architecture-conditional runtime value (e.g. `~/.docker/config.json`'s `cliPluginsExtraDirs`) | `darwin/docker.nix` `home.activation` block (user context) | The value is `brewPrefix`-dependent (`/opt/homebrew` vs `/usr/local`); resolve via `pkgs.stdenv.hostPlatform` so it's still eval-time deterministic, unlike the dotfiles repo's runtime `brew --prefix`. Per-user state must run in HM activation — nix-darwin system activation is root with `HOME=~root` (see "Self-heal convention") |
 | Cleanup of stale state from a tool the install explicitly replaces (Docker Desktop symlinks) | `darwin/docker.nix` guarded self-heal block (see convention below) | Old machines with the replaced tool have cruft; fresh machines have none. The block must no-op on fresh machines. |
 | Random pre-existing cruft unrelated to a replaced tool | README "Manual cleanup" mention, never an activation script | Not the rebuild's job to clean arbitrary user state |
 
 ## Why some state lives in `darwin/` and `nixos/`, not `home/`
 
-The HM bundle (`homeModules.default`) is platform-agnostic. Anything requiring system-level services (casks, native Docker, `fonts.fonts`) can't live there. Splitting cleanly keeps the HM bundle composable for users who only need `home-manager switch` without a full system build.
+The HM bundle (`homeModules.default`) is platform-agnostic. Anything requiring system-level services (casks, native Docker, `fonts.packages`) can't live there. Splitting cleanly keeps the HM bundle composable for users who only need `home-manager switch` without a full system build.
 
-The Docker `cliPluginsExtraDirs` patch is the canonical example of why this split matters: it touches `~/.docker/config.json` with a path that depends on the running brew prefix (`/opt/homebrew` on Apple Silicon, `/usr/local` on Intel). Under the dotfiles repo's `install-mac.sh` this was a runtime `brew --prefix` call; here it's eval-time `pkgs.stdenv.hostPlatform` — but it's still system state, so it lives in `darwin/docker.nix` rather than any `home/*.nix`.
+The Docker `cliPluginsExtraDirs` patch is the canonical example of why this split matters: it touches `~/.docker/config.json` with a path that depends on the running brew prefix (`/opt/homebrew` on Apple Silicon, `/usr/local` on Intel). Under the dotfiles repo's `install-mac.sh` this was a runtime `brew --prefix` call; here it's eval-time `pkgs.stdenv.hostPlatform`. It lives in `darwin/docker.nix` (not `home/*.nix`) because it's only meaningful where nix-homebrew owns Homebrew — but it runs as a `home.activation` (user context), because nix-darwin system activation runs as **root with `HOME=~root`** (`modules/system/activation-scripts.nix` exports it explicitly). A `system.activationScripts` block would silently patch `/var/root/.docker/config.json` and never take effect.
 
 ## Self-heal convention
 
@@ -51,15 +51,15 @@ The Docker `cliPluginsExtraDirs` patch is the canonical example of why this spli
 
 1. **No-op on fresh machines** — guard on the existence of the stale state, not on a blanket remove.
 2. **Only act on broken symlinks** — `[ -L "$link" ] && [ ! -e "$link" ]`. A working brew link for the same name must be left alone.
-3. **Never abort `darwin-rebuild switch` when sudo can't prompt** — `sudo rm ... 2>/dev/null || echo "hint"`. A failed sudo must not crash the activation; it should print an actionable message and continue.
-4. **Print the manual equivalent in the hint** so a non-interactive run leaves the user a copy-pasteable command.
+3. **Run in the right context.** nix-darwin system activation runs as root with `HOME=~root` — so per-user state (`~/.docker/config.json`) belongs in a `home.activation` block (HM activates as the user), and system-path state (`/usr/local/bin`, `/opt/homebrew/bin`) belongs in `system.activationScripts` where root needs no `sudo`.
+4. **Never abort the rebuild** — a failing removal prints an actionable manual-equivalent hint and continues (`rm -f ... || echo "hint"`); a failing `jq` write warns and skips.
 
 See `darwin/docker.nix`'s `cleanupDockerDesktopSymlinks` block for the reference pattern.
 
 ## Module conventions
 
 - **Idempotent.** Running the rebuild twice produces the same state. `nix-darwin.activationScripts` blocks must guard against duplicates; `home.file` writes are Nix-atomic (the generation swap).
-- **No secrets.** Never inline an API key, token, or password. The repo's `.zshrc` ships no `op read` calls — users wire their own secret-fetch lines in their own flake's `home-manager.users.<name>.programs.zsh.initExtra`. See README "Secret hygiene".
+- **No secrets.** Never inline an API key, token, or password. The repo's `.zshrc` ships no `op read` calls — users wire their own secret-fetch lines in their own flake's `home-manager.users.<name>.programs.zsh.initContent`. See README "Secret hygiene".
 - **Architecture-agnostic.** Use `pkgs.stdenv.hostPlatform.isAarch64` rather than hardcoding `/opt/homebrew` or `/usr/local`. Where the HM bundle genuinely doesn't care (most `home/packages.nix` lines), don't branch.
 - **No `kevin` anywhere.** No username, no hostname, no email, no homeDirectory is baked into any module. The flake exposes no `homeConfigurations.kevin-*`, no `darwinConfigurations.kevin-mac`, no `nixosConfigurations.kevin-linux`. Consumers build their own; see README "For other users".
 - **One tool per concept.** Don't install two tools that do the same job unless one explicitly replaces the other (and there's a self-heal block for the replaced one). Examples: `kubernetes-helm` (NOT `helm` — that's a different unrelated tool in nixpkgs); `delta` (the upstream name; brew called this `git-delta`).
@@ -70,7 +70,8 @@ See `darwin/docker.nix`'s `cleanupDockerDesktopSymlinks` block for the reference
 - **`nix flake check --all-systems` must pass clean.** This is the pre-commit gate. Evaluation errors are the only class of bug the sandbox can't catch — squashing them at the gate matters more than running `dev.sh`.
 - **`flake.lock` is committed.** Pinned to `nixpkgs-26.05-darwin` so Intel macOS support runs through end of 2026. When Intel Mac support is no longer needed, switch back to `nixos-unstable` and bump the lock.
 - **`inputs.<tool>.inputs.nixpkgs.follows = "nixpkgs"`** for every vendored upstream that allows it. Reduces rebuild cost. `nix-homebrew` doesn't expose a `nixpkgs` input — don't try to follow it there (spams a warning).
-- **Vendored upstream flakes pin a tag**, not a branch. `github:ogulcancelik/herdr/v0.7.5` and `github:anomalyco/opencode/v1.18.4`. Bump the tag explicitly when you want a new release; never float against `master`/`dev`.
+- **Vendored upstream flakes pin a tag**, not a branch. `github:ogulcancelik/herdr/v0.7.5`, `github:anomalyco/opencode/v1.18.4`, `github:modem-dev/hunk/v0.17.3`. Bump the tag explicitly when you want a new release; never float against `master`/`dev`.
+- **home-manager pins the release branch matching nixpkgs** (`release-26.05`). Tracking HM master against a pinned nixpkgs makes every `nix flake update` an option-removal lottery. **nix-darwin pins its matching release branch too** (`github:nix-darwin/nix-darwin/nix-darwin-26.05` — org moved from `lnl7`) — its `eval-config.nix` hard-throws when the nix-darwin and nixpkgs releases disagree.
 
 ## Repo-file conventions
 
@@ -103,20 +104,20 @@ For changes touching `darwin/` or `nixos/`:
 
 False success claims are the worst AGENTS.md violation. Ambient silence about a skipped verification path is the second-worst.
 
-## Sudo-path rule
+## System-activation rule (replaces the old sudo-path rule)
 
-`darwin/docker.nix`'s self-heal block tries `sudo rm -f` to clean broken symlinks from a prior Docker Desktop install. Under `darwin-rebuild dry-activate` (or any non-interactive run), `sudo` can't prompt and the block takes its `2>/dev/null || echo "hint"` path. In that case:
+nix-darwin system activation runs as **root** with `HOME=~root` (verified against the pinned nix-darwin: `modules/system/activation-scripts.nix` exports `USER=root`/`HOME=~root`, and `darwin-rebuild` re-execs through sudo). Consequences:
 
-- **Report it explicitly.** Don't claim the self-heal succeeded.
-- **Verify the steps that don't need sudo** (`~/.docker/config.json` patch with `${pkgs.jq}/bin/jq`, the HM-side config) actually worked.
-- **Tell the user to run `darwin-rebuild switch`** in a real terminal to exercise the sudo path.
+- **Per-user state never goes in `system.activationScripts`.** The `~/.docker/config.json` patch lives in a `home.activation` block inside `darwin/docker.nix` (HM's darwin module activates each user via `launchctl asuser … sudo -u <user> --set-home`). Putting it in system activation silently patches `/var/root/.docker/config.json`.
+- **No `sudo` in activation blocks.** System activation is already root; HM activation must never need it. The old "sudo can't prompt under dry-activate" concern is moot — don't reintroduce it.
+- **The sandbox and dry runs still can't exercise everything.** `./dev.sh` and `nix flake check` never run cask installs, `nix-homebrew`'s first-run sudo prompt, Colima, or a real activation. After changing `darwin/` or `nixos/`, report exactly which paths went unexercised and ask the user to run `darwin-rebuild switch` / `nixos-rebuild switch` on the real target.
 
 ## Don'ts
 
 - Don't mutate live machine state outside the rebuilds / `home-manager switch` / `dev.sh`. Diagnose freely; mutate via the rebuild.
 - Don't edit deployed files (`~/.zshrc`, `~/.config/nvim/init.lua`) directly — edit the repo source (`home/nvim.nix` + `files/nvim/`) so the change is version-controlled and re-deploys on the next rebuild.
 - Don't commit secrets. Audit `home/zsh.nix` and any config with `op read` references before pushing anywhere public — though the repo's `.zshrc` deliberately ships no `op read` calls, so this should be a non-issue.
-- Don't add a tool without checking the nixpkgs attribute name. nixpkgs has surprise names — `kubernetes-helm` (not `helm`), `delta` (not `git-delta`), `_1password-cli` (not `1password-cli` on the package side). Use `nix eval --raw github:NixOS/nixpkgs/<branch>#legacyPackages.${system}.<attr>.version` to probe before adding.
+- Don't add a tool without checking the nixpkgs attribute name. nixpkgs has surprise names — `kubernetes-helm` (not `helm`), `delta` (not `git-delta`). Use `nix eval --raw github:NixOS/nixpkgs/<branch>#legacyPackages.${system}.<attr>.version` to probe before adding.
 - Don't bake a username, hostname, or `homeDirectory` into any module. The repo is shareable — any user must be able to import it without forking. Per-user overrides live in the consumer's flake.
 - Don't claim a fix works without running `nix flake check --all-systems` + sandbox `./dev.sh`. For `darwin`/`nixos` changes, also request a real-machine `darwin-rebuild dry-activate` from the user.
 - Don't float vendored upstream flake inputs against a branch. Pin a tag — `github:<owner>/<repo>/<tag>`. Bump the tag explicitly when you want a new release.
@@ -124,9 +125,9 @@ False success claims are the worst AGENTS.md violation. Ambient silence about a 
 ## Pointers
 
 - **README.md** — full project context, phase status, the canonical "For other users" example flake. Read it for the big picture; AGENTS.md is for *how to make changes safely*.
-- **flake.nix** — inputs (pinned nixpkgs, vendored herdr/opencode, nix-darwin, nix-homebrew, home-manager) + shareable module outputs.
-- **home/** — `homeModules.default`: Phase 1–7 HM config. One file per tool. `default.nix` imports the rest; `packages.nix` is the raw-bin grab bag; `files.nix` is the banner-only `home.file`.
-- **darwin/** — `darwinModules.default`: nix-darwin bundle. `default.nix` wires `home-manager.darwinModules.home-manager` + `nix-homebrew.darwinModules.nix-homebrew` + imports `self.homeModules.default` + declares the casks and Colima. `docker.nix` is the `~/.docker/config.json` patch + self-heal.
-- **nixos/** — `nixosModules.default`: NixOS bundle. `default.nix` wires `home-manager.nixosModules.home-manager` + imports `self.homeModules.default` + native Docker + Nerd Font + `_1password-cli`.
+- **flake.nix** — inputs (pinned nixpkgs, vendored herdr/opencode/hunk, nix-darwin, nix-homebrew, home-manager) + shareable module outputs. `homeModules.default` is a wrapper module injecting the vendored flakes via `_module.args` (so consumers need no `extraSpecialArgs`); `darwinModules.default` / `nixosModules.default` are `import`ed with this flake's `inputs`/`self` closed over (so consumers need no `specialArgs`).
+- **home/** — Phase 1–7 HM config. One file per tool. `default.nix` imports the rest; `packages.nix` is the raw-bin grab bag; `files.nix` is the banner-only `home.file`.
+- **darwin/** — `darwinModules.default`: nix-darwin bundle. `default.nix` wires `home-manager.darwinModules.home-manager` + `nix-homebrew.darwinModules.nix-homebrew` + applies `self.homeModules.default` via `home-manager.sharedModules` + declares the casks and Colima. `docker.nix` is the `~/.docker/config.json` patch (a `home.activation`, user context) + the broken-symlink self-heal (`system.activationScripts`, root).
+- **nixos/** — `nixosModules.default`: NixOS bundle. `default.nix` wires `home-manager.nixosModules.home-manager` + applies `self.homeModules.default` via `home-manager.sharedModules` + native Docker + Nerd Font (`fonts.packages`) + system zsh.
 - **files/** — vendored tool config trees: `nvim/` (AstroNvim, 24 files), `bat-themes/`, `btop/`, `herdr/`, `opencode/`, plus the `ainative-banner.sh` and the 6-line `ghostty-config`.
 - **dev.sh** — throwaway-HOME sandbox entry. Uses the private `legacyPackages.${system}.homeConfigurations.sandbox` flake attribute. NOT a consumer surface.

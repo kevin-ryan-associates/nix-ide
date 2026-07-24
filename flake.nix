@@ -9,7 +9,11 @@
     # nixos-unstable. See https://nixos.org/manual/nixpkgs/unstable/release-notes#x86_64-darwin-26.11
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
     home-manager = {
-      url = "github:nix-community/home-manager";
+      # Pinned to the release branch matching our nixpkgs (26.05). Tracking
+      # HM master against a pinned nixpkgs makes every `nix flake update` an
+      # option-removal lottery (programs.git.delta rename, fonts.fonts
+      # removal, ...). `nix flake update` now moves within 26.05 backports.
+      url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -39,11 +43,15 @@
     };
 
     # nix-darwin + nix-homebrew for Phase 8 system modules (macOS casks,
-    # Colima, `1password-cli`, the Docker `cliPluginsExtraDirs` activation
-    # script). Imported only by consumers who activate a darwinConfiguration;
-    # sharing them means they follow our nixpkgs.
+    # Colima, the Docker `cliPluginsExtraDirs` activation script). Imported
+    # only by consumers who activate a darwinConfiguration; sharing them
+    # means they follow our nixpkgs.
     nix-darwin = {
-      url = "github:lnl7/nix-darwin";
+      # nix-darwin has release branches matching nixpkgs releases and HARD
+      # asserts the correspondence (eval-config.nix: nix-darwin 26.11 vs
+      # nixpkgs 26.05 is a throw, not a warning). Pin the 26.05 branch to
+      # match our nixpkgs. Note the org moved lnl7 -> nix-darwin.
+      url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-homebrew = {
@@ -82,17 +90,11 @@
         home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
           modules = [
-            ./home
+            # The wrapped bundle — carries `_module.args` for the vendored
+            # upstream flakes, so no extraSpecialArgs are needed here.
+            self.homeModules.default
             { home = { inherit username homeDirectory; }; }
           ];
-          # Thread vendored upstream flake inputs into the home module so
-          # `home/herdr.nix`/`home/opencode.nix`/`home/hunk.nix` can consume
-          # their packages.
-          extraSpecialArgs = {
-            herdr = inputs.herdr;
-            opencode = inputs.opencode;
-            hunk = inputs.hunk;
-          };
         };
 
       # Convenience: devShell per system. `nix develop .` drops the user into
@@ -127,18 +129,32 @@
       # Home-manager bundle (Phase 2–7): zsh, starship, fzf, zoxide, git/delta,
       # lazygit, lazydocker, bat, btop, htop, ghostty config, herdr, opencode,
       # nvim (AstroNvim), k8s binaries, tree/jq/yq, gh/glab.
-      homeModules.default = ./home;
+      #
+      # Wrapped in a module that injects the vendored upstream flakes via
+      # `_module.args`, so consumers NEVER need `extraSpecialArgs` — the
+      # bundle is self-contained from this flake's own inputs.
+      homeModules.default = { ... }: {
+        imports = [ ./home ];
+        _module.args = {
+          inherit (inputs) herdr opencode hunk;
+        };
+      };
 
-      # nix-darwin bundle (Phase 8): Homebrew casks (ghostty, 1password-cli,
+      # nix-darwin bundle (Phase 8): Homebrew casks (ghostty,
       # font-meslo-lg-nerd-font), Colima + Docker compose, the Docker
       # `cliPluginsExtraDirs` activation script, and home-manager wired in
-      # importing `self.homeModules.default`.
-      darwinModules.default = ./darwin;
+      # via `home-manager.sharedModules`.
+      #
+      # `import`ed with this flake's `inputs`/`self` closed over — module
+      # arguments would otherwise resolve against the CONSUMER's flake
+      # (missing `homeModules`, missing vendored inputs) or fail as unbound
+      # arguments. Consumers need zero `specialArgs`.
+      darwinModules.default = import ./darwin { inherit inputs self; };
 
       # NixOS bundle (Phase 8): native Docker, Meslo Nerd Font via
-      # `fonts.fonts`, and home-manager wired in importing
-      # `self.homeModules.default`.
-      nixosModules.default = ./nixos;
+      # `fonts.packages`, and home-manager wired in via
+      # `home-manager.sharedModules`. Same closure pattern as darwin.
+      nixosModules.default = import ./nixos { inherit inputs self; };
 
       # -------------------------------------------------------------------------
       # DevShell — the only non-module output we publish ourselves. Anyone

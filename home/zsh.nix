@@ -2,20 +2,25 @@
 #
 # Strategy:
 #   - History, options, aliases: use programs.zsh.* options where HM models
-#     them cleanly; fall back to initExtra for the raw `setopt …` line and
+#     them cleanly; fall back to initContent for the raw `setopt …` line and
 #     for everything Zinit owns (clone bootstrap, annexes, turbo plugin block,
 #     zstyle completion styling, fzf-tab zstyles).
-#   - fzf, zoxide, starship init lines are NOT in initExtra — those tools'
+#   - fzf, zoxide, starship init lines are NOT in initContent — those tools'
 #     modules inject their own integration via `enableZshIntegration`.
 #   - Aliases for not-yet-installed tools (kubectl, docker, terraform,
 #     lazygit, opencode) are kept harmlessly; they land cleanly when later
 #     phases add the binaries.
 
-{ ... }:
+{ config, ... }:
 
 {
   programs.zsh = {
     enable = true;
+
+    # Lock the dotfiles directory to $HOME. HM 26.05 warns that a future
+    # release moves the default to "${xdg.configHome}/zsh" — the dotfiles
+    # port keeps ~/.zshrc / ~/.zprofile, so we pin the current behavior.
+    dotDir = config.home.homeDirectory;
 
     # ---- History ---------------------------------------------------------
     history = {
@@ -28,7 +33,7 @@
       share = true;          # SHARE_HISTORY (default)
       append = true;         # APPEND_HISTORY
       # HIST_REDUCE_BLANKS and INC_APPEND_HISTORY have no HM option — kept
-      # as raw `setopt` in initExtra below.
+      # as raw `setopt` in initContent below.
     };
 
     # ---- Aliases (every alias from .zshrc) -------------------------------
@@ -69,7 +74,8 @@
     # Everything below is preserved verbatim from .zshrc because HM has no
     # dedicated option for it (zstyles, Zinit bootstrap, plugin block, the
     # raw `setopt …` line, banner source). Order matches the original file.
-    initExtra = ''
+    # `initContent` (order 1000) is the current name for what was `initExtra`.
+    initContent = ''
       # ---- Options (no HM mapping; raw setopt) ----------------------------
       setopt AUTO_CD AUTO_PUSHD PUSHD_IGNORE_DUPS PUSHD_SILENT
       setopt INTERACTIVE_COMMENTS NO_BEEP PROMPT_SUBST
