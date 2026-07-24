@@ -1,28 +1,22 @@
 # Home-manager module bundle — the shareable part.
 #
 # This is exported as `homeModules.default` so other users can import it in
-# their own flake and set their own `home.username` / `home.homeDirectory`:
+# their own flake. The easy path is the flake's `lib.mkHome` builder, which
+# wires this bundle plus the caller's identity into a ready-to-switch
+# home-manager configuration:
 #
-#   outputs = { nix-ide, home-manager, nixpkgs, ... }@inputs: {
-#     homeConfigurations.alice = home-manager.lib.homeManagerConfiguration {
-#       pkgs = nixpkgs.legacyPackages.x86_64-darwin;
-#       modules = [
-#         nix-ide.homeModules.default
-#         { home = { username = "alice"; homeDirectory = "/Users/alice"; stateVersion = "24.11"; }; }
-#       ];
+#   outputs = { nix-ide, ... }: {
+#     homeConfigurations."alice@aarch64-darwin" = nix-ide.lib.mkHome {
+#       username = "alice";
+#       system = "aarch64-darwin";
+#       # homeDirectory defaults to /Users/alice; extraModules = [ ... ] for overrides
 #     };
 #   };
 #
 # This bundle is user-agnostic: it sets NO `home.username` /
-# `home.homeDirectory`. The consumer's own flake supplies those, e.g.:
-#
-#   homeConfigurations.alice = home-manager.lib.homeManagerConfiguration {
-#     pkgs = nixpkgs.legacyPackages.x86_64-darwin;
-#     modules = [
-#       nix-ide.homeModules.default
-#       { home = { username = "alice"; homeDirectory = "/Users/alice"; stateVersion = "24.11"; }; }
-#     ];
-#   };
+# `home.homeDirectory`. The consumer's own flake supplies those (via
+# `lib.mkHome`, or by importing this bundle into a raw
+# `home-manager.lib.homeManagerConfiguration` call).
 #
 # See README.md "For other users" for the full canonical example.
 

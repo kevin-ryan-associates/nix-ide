@@ -9,6 +9,9 @@ Nix-managed developer environment — a port of [`~/dotfiles`](https://github.co
   - `darwinModules.default` — nix-darwin module: Homebrew casks (Ghostty, Nerd Font), Colima, the Docker `cliPluginsExtraDirs` activation, and `home-manager` wired in.
   - `nixosModules.default` — NixOS module: native Docker, Nerd Font via `fonts.packages`, system zsh, and `home-manager` wired in.
   - `devShells.${system}.default` — quick tool check via `nix develop .`, no `$HOME` writes.
+- Publishes the **instantiation layer** on top of the HM bundle:
+  - `lib.mkHome { username, system, homeDirectory?, extraModules? }` — a builder that wires `homeModules.default` into a ready-to-switch `home-manager.lib.homeManagerConfiguration` for the caller's identity. `homeDirectory` defaults to the platform convention (`/Users/<name>` on macOS, `/home/<name>` on Linux); `extraModules` carries per-user overrides (git identity, secret wiring, ...).
+  - `homeConfigurations."example@x86_64-linux"` — a working template built by `lib.mkHome` against a placeholder identity. Copy and adapt it in your own flake; it's not meant to be activated as-is.
 
   All three bundles are **self-contained**: the vendored upstream inputs (herdr, opencode, hunk), home-manager, nix-darwin and nix-homebrew are closed over from this flake's own inputs. Consumers declare none of them and pass no `specialArgs` / `extraSpecialArgs`.
 - Uses native `programs.*` home-manager modules wherever HM models the tool cleanly (zsh, fzf, zoxide, starship, git, bat, htop, lazygit, lazydocker). Falls back to `home.file` for raw user-data that has no module (the ainative banner, the btop themes directory, the herdr config, the AstroNvim tree, the opencode config directory).
@@ -204,7 +207,7 @@ Note what's NOT there: no `specialArgs`, no `home-manager` / `nix-homebrew` / `h
 
 ### A minimal `homeConfigurations`-only consumer (no nix-darwin, no NixOS)
 
-If you don't want a full system module and are happy running `home-manager switch` yourself:
+If you don't want a full system module and are happy running `home-manager switch` yourself, call the `lib.mkHome` builder. It takes your identity/system and returns a ready-to-switch `home-manager.lib.homeManagerConfiguration` with `homeModules.default` already wired in:
 
 ```nix
 {
@@ -219,27 +222,33 @@ If you don't want a full system module and are happy running `home-manager switc
     nix-ide.url = "github:kevin-ryan-associates/nix-ide";
   };
 
-  outputs = { nixpkgs, home-manager, nix-ide, ... }:
-    let
-    system = "x86_64-darwin";  # or your system
-    username = "alice";
-  in {
-    homeConfigurations.${username} = home-manager.lib.homeManagerConfiguration {
-      pkgs = nixpkgs.legacyPackages.${system};
-      modules = [
-        nix-ide.homeModules.default
-        { home = { inherit username;
-                   homeDirectory = "/Users/${username}";
-                   stateVersion = "24.11"; }; }
+  outputs = { nix-ide, ... }: {
+    homeConfigurations."alice@x86_64-linux" = nix-ide.lib.mkHome {
+      username = "alice";
+      system = "x86_64-linux";              # or aarch64-darwin, x86_64-darwin, aarch64-linux
+      homeDirectory = "/home/alice";        # optional — defaults to /home/<name> or /Users/<name>
+
+      # Optional per-user overrides, applied after the bundle:
+      extraModules = [
+        {
+          programs.git.settings.user = {
+            name = "Alice Example";
+            email = "alice@example.com";
+          };
+        }
       ];
-      # No extraSpecialArgs — the bundle injects the vendored upstream
-      # flakes (herdr/opencode/hunk) itself via `_module.args`.
     };
   };
 }
 ```
 
-Run `nix run home-manager/release-26.05 -- switch --flake .#alice -b backup`. The HM-only path skips Colima, the casks, native Docker — those land via the nix-darwin / NixOS modules.
+Note what's NOT there: no `pkgs`, no module list, no `extraSpecialArgs` — `mkHome` closes over nix-ide's own nixpkgs and the bundle injects the vendored upstream flakes (herdr/opencode/hunk) itself via `_module.args`.
+
+This repo's own `homeConfigurations."example@x86_64-linux"` output is exactly this call against a placeholder identity — a working template to copy from, not an activation target.
+
+Run `nix run home-manager/release-26.05 -- switch --flake .#alice@x86_64-linux -b backup`. The HM-only path skips Colima, the casks, native Docker — those land via the nix-darwin / NixOS modules.
+
+If you need something `mkHome` doesn't model, the raw `home-manager.lib.homeManagerConfiguration { pkgs = ...; modules = [ nix-ide.homeModules.default { home = { ... }; } ]; }` pattern still works — `homeModules.default` remains the underlying public surface.
 
 ## Phase status
 
@@ -252,13 +261,13 @@ Ticked = port complete. (Phase 6 was folded into Phase 8 — a Docker runtime is
 - [x] **Phase 5 — k8s**: `kubectl`, `kubernetes-helm` (the `helm` CLI; nixpkgs' `helm` attribute is unrelated), `k9s`. No per-tool config to port (the dotfiles repo has none).
 - [x] **Phase 6 — Docker runtime**: folded into Phase 8. The HM bundle doesn't ship a Docker runtime — that's system territory.
 - [x] **Phase 7 — AI tooling**: `opencode` vendored upstream (`github:anomalyco/opencode/v1.18.4`), config directory ported minus the runtime drag-in (`node_modules`, `package.json`, `package-lock.json`, `.gitignore`). **OpenSpec dropped entirely** — removed the `OPENSPEC_TELEMETRY=0` env-var the dotfiles repo carried; users wire their own spec-driven workflow tools.
-- [x] **Phase 8 — system modules**: `darwinModules.default` (nix-darwin + nix-homebrew + Docker activation + HM wired in via `home-manager.sharedModules`), `nixosModules.default` (native Docker + Nerd Font via `fonts.packages` + system zsh + HM wired in). Both bundles close over this flake's inputs — consumers pass no `specialArgs`. The flake exports NO `homeConfigurations` / `darwinConfigurations` / `nixosConfigurations` directly — consumers compose them in their own flake from these modules.
+- [x] **Phase 8 — system modules**: `darwinModules.default` (nix-darwin + nix-homebrew + Docker activation + HM wired in via `home-manager.sharedModules`), `nixosModules.default` (native Docker + Nerd Font via `fonts.packages` + system zsh + HM wired in). Both bundles close over this flake's inputs — consumers pass no `specialArgs`. The only `homeConfigurations` the flake exports is the placeholder `example@x86_64-linux` template built by `lib.mkHome`; real `homeConfigurations` / `darwinConfigurations` / `nixosConfigurations` are composed by consumers in their own flake from these modules.
 
 ## Layout
 
 ```
 nix-ide/
-├── flake.nix              # inputs + shareable module bundles (no kevin- or username-here)
+├── flake.nix              # inputs + shareable module bundles + lib.mkHome builder + example template (no real identity here)
 ├── home/                  # `homeModules.default` — shareable home-manager config (Phase 2–7)
 │   ├── default.nix        # aggregator: imports all sub-modules, sets stateVersion + global shell integration flags
 │   ├── zsh.nix            # programs.zsh (history, aliases, Zinit, initContent, sessionVariables)
