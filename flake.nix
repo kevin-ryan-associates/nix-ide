@@ -17,26 +17,17 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Vendored upstream binaries not packaged in nixpkgs at our pin.
-    #   herdr — agent multiplexer (https://herdr.dev/), v0.7.5.
-    #     Upstream publishes a flake — consume `packages.${system}.herdr`.
-    #   opencode — coding agent (https://opencode.ai/), v1.18.4.
-    #     Same pattern, `packages.${system}.opencode`. Falls back to
-    #     `nixpkgs#opencode` (1.15.10) if upstream vendor hashes break on a
-    #     given system — see home/opencode.nix.
-    herdr = {
-      url = "github:ogulcancelik/herdr/v0.7.5";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    opencode = {
-      url = "github:anomalyco/opencode/v1.18.4";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # The repo's one remaining vendored upstream flake.
+    # (herdr and opencode used to live here as vendored flakes; they now
+    # fetch PREBUILT upstream release binaries via hash-verified fetchurl in
+    # home/herdr.nix / home/opencode.nix — Bun-toolchain source builds
+    # SIGSEGV under virtualized CPUs. hunk stays vendored: a Rust source
+    # build, unaffected by that failure mode.)
     # hunk — review-first terminal diff viewer (https://hunk.dev/), v0.17.3.
     #   Not in nixpkgs at our `nixpkgs-26.05-darwin` pin (present in
     #   unstable, but we're pinned for Intel Mac support through end of
     #   2026). Upstream publishes a flake with `packages.${system}.hunk`
-    #   for all four supportedSystems — same vendor pattern as herdr/opencode.
+    #   for all four supportedSystems.
     hunk = {
       url = "github:modem-dev/hunk/v0.17.3";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -78,7 +69,7 @@
       # Exported as `lib.mkHome`. Takes the user's identity/system and returns
       # a `home-manager.lib.homeManagerConfiguration` importing the wrapped
       # `homeModules.default` bundle (which carries `_module.args` for the
-      # vendored upstream flakes, so no extraSpecialArgs are needed).
+      # vendored hunk flake, so no extraSpecialArgs are needed).
       #
       # `homeDirectory` defaults to the platform convention (/Users on macOS,
       # /home on Linux) but may be given explicitly. `extraModules` lets a
@@ -141,13 +132,13 @@
       # lazygit, lazydocker, bat, btop, htop, ghostty config, herdr, opencode,
       # nvim (AstroNvim), k8s binaries, tree/jq/yq, gh/glab.
       #
-      # Wrapped in a module that injects the vendored upstream flakes via
+      # Wrapped in a module that injects the vendored hunk flake via
       # `_module.args`, so consumers NEVER need `extraSpecialArgs` — the
       # bundle is self-contained from this flake's own inputs.
       homeModules.default = { ... }: {
         imports = [ ./home ];
         _module.args = {
-          inherit (inputs) herdr opencode hunk;
+          inherit (inputs) hunk;
         };
       };
 

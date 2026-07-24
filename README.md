@@ -13,11 +13,12 @@ Nix-managed developer environment — a port of [`~/dotfiles`](https://github.co
   - `lib.mkHome { username, system, homeDirectory?, extraModules? }` — a builder that wires `homeModules.default` into a ready-to-switch `home-manager.lib.homeManagerConfiguration` for the caller's identity. `homeDirectory` defaults to the platform convention (`/Users/<name>` on macOS, `/home/<name>` on Linux); `extraModules` carries per-user overrides (git identity, secret wiring, ...).
   - `homeConfigurations."example@x86_64-linux"` — a working template built by `lib.mkHome` against a placeholder identity. Copy and adapt it in your own flake; it's not meant to be activated as-is.
 
-  All three bundles are **self-contained**: the vendored upstream inputs (herdr, opencode, hunk), home-manager, nix-darwin and nix-homebrew are closed over from this flake's own inputs. Consumers declare none of them and pass no `specialArgs` / `extraSpecialArgs`.
+  All three bundles are **self-contained**: the vendored upstream input (hunk), home-manager, nix-darwin and nix-homebrew are closed over from this flake's own inputs. Consumers declare none of them and pass no `specialArgs` / `extraSpecialArgs`.
 - Uses native `programs.*` home-manager modules wherever HM models the tool cleanly (zsh, fzf, zoxide, starship, git, bat, htop, lazygit, lazydocker). Falls back to `home.file` for raw user-data that has no module (the ainative banner, the btop themes directory, the herdr config, the AstroNvim tree, the opencode config directory).
 - Keeps **Zinit** as the zsh plugin manager (clone-on-first-run preserved verbatim in `programs.zsh.initContent`). Plugin lazy-loading UX is unchanged from the dotfiles repo.
 - Uses [AstroNvim](https://astronvim.com/) for Neovim, vendored into `files/nvim/` and deployed via `home.file`. Lazy.nvim is the plugin manager and stays in charge — plugins install on first `nvim` launch (~30s).
-- Uses **vendored** upstream flake packages for `herdr` (v0.7.5) and `opencode` (v1.18.4), keeping vendor hashes upstream's problem.
+- Installs `herdr` (v0.7.5) and `opencode` (v1.18.4) from **prebuilt upstream release binaries** — hash-verified `fetchurl` from GitHub Releases, installed straight to `$out/bin` via `pkgs.stdenv.mkDerivation` (with `autoPatchelfHook` for opencode's glibc Linux builds). `hunk` (v0.17.3) remains a **vendored** upstream flake package, keeping vendor hashes upstream's problem.
+- **Why prebuilt binaries for herdr/opencode:** source builds of Bun/JS-toolchain binaries are unreliable in virtualized environments (Parallels/UTM/VMware VMs, some CI runners) — Bun's CPU feature detection mismatches the hypervisor's virtual CPU and the compiled binary dies with SIGSEGV on its smoke test (`opencode --version`). Prebuilt releases are compiled on upstream CI's bare metal, so they're the default for portability; opencode additionally uses the `-baseline` x64 builds (no AVX2-era instruction-set assumptions) so the embedded Bun runtime stays VM-safe at runtime too.
 
 ## Prerequisites
 
@@ -152,7 +153,7 @@ The flake exposes shareable module bundles. You import the bundle that matches y
 }
 ```
 
-Note what's NOT there: no `specialArgs`, no `home-manager` / `nix-homebrew` / `herdr` / `opencode` / `hunk` inputs — the bundle closes over nix-ide's own.
+Note what's NOT there: no `specialArgs`, no `home-manager` / `nix-homebrew` / `hunk` inputs — the bundle closes over nix-ide's own.
 
 ### `flake.nix` for a Linux user
 
@@ -242,7 +243,7 @@ If you don't want a full system module and are happy running `home-manager switc
 }
 ```
 
-Note what's NOT there: no `pkgs`, no module list, no `extraSpecialArgs` — `mkHome` closes over nix-ide's own nixpkgs and the bundle injects the vendored upstream flakes (herdr/opencode/hunk) itself via `_module.args`.
+Note what's NOT there: no `pkgs`, no module list, no `extraSpecialArgs` — `mkHome` closes over nix-ide's own nixpkgs and the bundle injects the vendored upstream flake (hunk) itself via `_module.args`.
 
 This repo's own `homeConfigurations."example@x86_64-linux"` output is exactly this call against a placeholder identity — a working template to copy from, not an activation target.
 
@@ -257,10 +258,10 @@ Ticked = port complete. (Phase 6 was folded into Phase 8 — a Docker runtime is
 - [x] **Phase 1 — zsh + runtime deps**: `.zshrc` (history, options, initContent, aliases), fzf, zoxide, starship (Tokyo Night palette transcribed to `programs.starship.settings`), banner, and the binaries zsh directly invokes at startup (`eza`, `fd`, `bat`, `git-delta`).
 - [x] **Phase 2 — git + delta + git TUIs**: `programs.git.delta` (Tokyo Night options), `gh`, `glab`, `programs.lazygit.settings` (Tokyo Night Moon colors), `programs.lazydocker.settings`. Dropped the redundant macOS `~/Library/Application Support/{lazygit,lazydocker}/` symlinks (XDG-first makes them no-ops).
 - [x] **Phase 3 — nvim (AstroNvim)**: the whole `~/dotfiles/nvim/.config/nvim/` tree vendored into `files/nvim/` and deployed via `home.file.".config/nvim".source`. `neovim`, `nodejs`, `ripgrep`, `cmake` shipped to `home.packages`. Lazy.nvim stays in charge of plugins — first `nvim` launch downloads them (~30s, same UX as the dotfiles repo).
-- [x] **Phase 4 — system tooling**: `programs.bat` + Tokyo Night tmTheme + `bat cache --build` activation, `btop` (config + theme via `home.file`), `programs.htop` (color scheme 6), Ghostty config via `home.file`, `herdr` (vendored upstream `github:ogulcancelik/herdr/v0.7.5`), `tree`/`jq`/`yq`/`gh`, plus `glow` (markdown renderer), `bandwhich` (per-process bandwidth TUI; needs `sudo` on macOS for live capture), `dust` (du + tree, Rust), `hunk` (review-first terminal diff viewer, vendored upstream `github:modem-dev/hunk/v0.17.3` — not in `nixpkgs-26.05-darwin` at our pin, so vendored rather than holding the flake back on unstable).
+- [x] **Phase 4 — system tooling**: `programs.bat` + Tokyo Night tmTheme + `bat cache --build` activation, `btop` (config + theme via `home.file`), `programs.htop` (color scheme 6), Ghostty config via `home.file`, `herdr` (prebuilt v0.7.5 binary from GitHub Releases, hash-verified `fetchurl`), `tree`/`jq`/`yq`/`gh`, plus `glow` (markdown renderer), `bandwhich` (per-process bandwidth TUI; needs `sudo` on macOS for live capture), `dust` (du + tree, Rust), `hunk` (review-first terminal diff viewer, vendored upstream `github:modem-dev/hunk/v0.17.3` — not in `nixpkgs-26.05-darwin` at our pin, so vendored rather than holding the flake back on unstable).
 - [x] **Phase 5 — k8s**: `kubectl`, `kubernetes-helm` (the `helm` CLI; nixpkgs' `helm` attribute is unrelated), `k9s`. No per-tool config to port (the dotfiles repo has none).
 - [x] **Phase 6 — Docker runtime**: folded into Phase 8. The HM bundle doesn't ship a Docker runtime — that's system territory.
-- [x] **Phase 7 — AI tooling**: `opencode` vendored upstream (`github:anomalyco/opencode/v1.18.4`), config directory ported minus the runtime drag-in (`node_modules`, `package.json`, `package-lock.json`, `.gitignore`). **OpenSpec dropped entirely** — removed the `OPENSPEC_TELEMETRY=0` env-var the dotfiles repo carried; users wire their own spec-driven workflow tools.
+- [x] **Phase 7 — AI tooling**: `opencode` as a prebuilt v1.18.4 release binary (hash-verified `fetchurl` from GitHub Releases; `-baseline` x64 variants + `autoPatchelfHook` on Linux — Bun source builds SIGSEGV under virtualized CPUs), config directory ported minus the runtime drag-in (`node_modules`, `package.json`, `package-lock.json`, `.gitignore`). **OpenSpec dropped entirely** — removed the `OPENSPEC_TELEMETRY=0` env-var the dotfiles repo carried; users wire their own spec-driven workflow tools.
 - [x] **Phase 8 — system modules**: `darwinModules.default` (nix-darwin + nix-homebrew + Docker activation + HM wired in via `home-manager.sharedModules`), `nixosModules.default` (native Docker + Nerd Font via `fonts.packages` + system zsh + HM wired in). Both bundles close over this flake's inputs — consumers pass no `specialArgs`. The only `homeConfigurations` the flake exports is the placeholder `example@x86_64-linux` template built by `lib.mkHome`; real `homeConfigurations` / `darwinConfigurations` / `nixosConfigurations` are composed by consumers in their own flake from these modules.
 
 ## Layout
@@ -282,8 +283,8 @@ nix-ide/
 │   ├── btop.nix           # home.packages.btop + home.file btop config + themes
 │   ├── htop.nix           # programs.htop
 │   ├── ghostty.nix        # home.file ghostty config + Linux `pkgs.ghostty` binary
-│   ├── herdr.nix          # vendored herdr upstream + herdr config
-│   ├── opencode.nix       # vendored opencode upstream + opencode config dir
+│   ├── herdr.nix          # prebuilt herdr binary (fetchurl) + herdr config
+│   ├── opencode.nix       # prebuilt opencode binary (fetchurl) + opencode config dir
 │   ├── packages.nix       # raw binaries (eza, fd, delta, gh, glab, tree, jq, yq, k8s)
 │   └── files.nix          # home.file for the banner
 ├── darwin/                # `darwinModules.default` — shared nix-darwin config (Phase 8)
